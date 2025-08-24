@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": [
+      "ES2020"
+    ],
+    "module": "ES2020",
+    "moduleResolution": "Node",
+    "strict": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": ".vercel/output"
+  },
+  "include": [
+    "api/**/*.ts",
+    "lib/**/*.ts",
+    "tests/**/*.ts"
+  ]
+}
