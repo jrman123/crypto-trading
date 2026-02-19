@@ -1,0 +1,161 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: trading_postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-trader}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-trader123}
+      POSTGRES_DB: ${DB_NAME:-trading}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-trader}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - trading_network
+
+  # Price Ingestor - Fetches price data from Binance
+  ingestor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading_ingestor
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-trading}
+      DB_USER: ${DB_USER:-trader}
+      DB_PASSWORD: ${DB_PASSWORD:-trader123}
+      SYMBOLS_CONFIG: /app/configs/symbols.yaml
+      SOURCES_CONFIG: /app/configs/sources.yaml
+    volumes:
+      - ./apps:/app/apps
+      - ./configs:/app/configs
+    command: python /app/apps/ingestor/main.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - trading_network
+
+  # Feature Builder - Calculates technical indicators
+  feature_builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading_feature_builder
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-trading}
+      DB_USER: ${DB_USER:-trader}
+      DB_PASSWORD: ${DB_PASSWORD:-trader123}
+      SYMBOLS_CONFIG: /app/configs/symbols.yaml
+      SOURCES_CONFIG: /app/configs/sources.yaml
+    volumes:
+      - ./apps:/app/apps
+      - ./configs:/app/configs
+    command: python /app/apps/feature_builder/main.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingestor:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - trading_network
+
+  # Signal Engine - Generates trade signals
+  signal_engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading_signal_engine
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-trading}
+      DB_USER: ${DB_USER:-trader}
+      DB_PASSWORD: ${DB_PASSWORD:-trader123}
+      SYMBOLS_CONFIG: /app/configs/symbols.yaml
+      SOURCES_CONFIG: /app/configs/sources.yaml
+    volumes:
+      - ./apps:/app/apps
+      - ./configs:/app/configs
+    command: python /app/apps/signal_engine/main.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+      feature_builder:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - trading_network
+
+  # Execution Bot - Paper trades based on signals
+  execution_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading_execution_bot
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-trading}
+      DB_USER: ${DB_USER:-trader}
+      DB_PASSWORD: ${DB_PASSWORD:-trader123}
+      SYMBOLS_CONFIG: /app/configs/symbols.yaml
+      SOURCES_CONFIG: /app/configs/sources.yaml
+      RISK_CONFIG: /app/configs/risk.yaml
+    volumes:
+      - ./apps:/app/apps
+      - ./configs:/app/configs
+    command: python /app/apps/execution_bot/main.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+      signal_engine:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - trading_network
+
+  # Web Agent - Monitors news and sets TRADE_PAUSE flag
+  web_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading_web_agent
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-trading}
+      DB_USER: ${DB_USER:-trader}
+      DB_PASSWORD: ${DB_PASSWORD:-trader123}
+      SOURCES_CONFIG: /app/configs/sources.yaml
+    volumes:
+      - ./apps:/app/apps
+      - ./configs:/app/configs
+    command: python /app/apps/web_agent/main.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - trading_network
+
+volumes:
+  postgres_data:
+
+networks:
+  trading_network:
+    driver: bridge

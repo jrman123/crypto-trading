@@ -1,0 +1,19 @@
+# Risk Management Configuration
+
+# Position sizing
+max_position_size_usd: 1000  # Maximum position size in USD
+max_position_pct: 0.10       # Maximum position as percentage of portfolio (10%)
+
+# Stop loss and take profit
+stop_loss_pct: 0.05          # Stop loss at 5% loss
+take_profit_pct: 0.10        # Take profit at 10% gain
+
+# Trading limits
+max_daily_trades: 10         # Maximum number of trades per day
+max_open_positions: 3        # Maximum number of concurrent positions
+
+# Signal filtering
+min_signal_strength: 0.6     # Minimum signal strength to trade (0.0 to 1.0)
+
+# Leverage (for future use)
+max_leverage: 1              # No leverage for paper trading

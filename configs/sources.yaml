@@ -1,0 +1,47 @@
+# Data Sources Configuration
+
+# Exchange configuration
+exchange:
+  name: binance
+  base_url: https://api.binance.com
+  testnet: false
+  
+# Price data ingestion
+price_ingestion:
+  interval: 1m           # Kline interval: 1m, 5m, 15m, 1h, 4h, 1d
+  lookback_hours: 168   # Initial lookback period (7 days)
+  poll_interval_sec: 60  # Poll for new data every 60 seconds
+
+# News sources
+news:
+  gdelt:
+    enabled: true
+    api_url: https://api.gdeltproject.org/api/v2/doc/doc
+    query_interval_sec: 300  # Query every 5 minutes
+    keywords:
+      - bitcoin
+      - ethereum
+      - cryptocurrency
+      - crypto market
+      - blockchain
+    max_results: 10
+    
+  # Additional news sources can be added here
+  # twitter:
+  #   enabled: false
+  #   bearer_token: YOUR_TOKEN
+  
+# Feature calculation
+features:
+  calculation_interval_sec: 60  # Recalculate features every 60 seconds
+  min_data_points: 50           # Minimum data points required
+
+# Signal generation
+signals:
+  generation_interval_sec: 60   # Generate signals every 60 seconds
+  
+# Execution
+execution:
+  check_interval_sec: 30        # Check for signals every 30 seconds
+  paper_trading: true
+  initial_balance: 10000        # Starting balance for paper trading
