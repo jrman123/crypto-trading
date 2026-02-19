@@ -15,6 +15,10 @@ export interface WebIntelligence {
   published_at?: number;
 }
 
+// Sentiment analysis constants
+const POSITIVE_SENTIMENT_THRESHOLD = 0.6;
+const NEGATIVE_SENTIMENT_THRESHOLD = 0.4;
+
 // Simple sentiment analysis based on keywords
 function analyzeSentiment(text: string): { sentiment: Sentiment; score: number } {
   const lowerText = text.toLowerCase();
@@ -48,9 +52,9 @@ function analyzeSentiment(text: string): { sentiment: Sentiment; score: number }
   const score = positiveCount / total;
   
   let sentiment: Sentiment;
-  if (score > 0.6) {
+  if (score > POSITIVE_SENTIMENT_THRESHOLD) {
     sentiment = 'POSITIVE';
-  } else if (score < 0.4) {
+  } else if (score < NEGATIVE_SENTIMENT_THRESHOLD) {
     sentiment = 'NEGATIVE';
   } else {
     sentiment = 'NEUTRAL';

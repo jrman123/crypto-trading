@@ -53,14 +53,18 @@ function calculateRSI(prices: number[], period: number = 14): number {
 }
 
 // Calculate MACD
+// NOTE: This uses a simplified approximation for the signal line.
+// Standard MACD signal is a 9-period EMA of MACD values, but we approximate it
+// with 0.9 multiplier for simplicity in this initial implementation.
+// For production use, consider implementing proper 9-period EMA calculation
+// by maintaining historical MACD values.
 function calculateMACD(prices: number[]): { macd: number; signal: number } {
   const ema12 = calculateEMA(prices, 12);
   const ema26 = calculateEMA(prices, 26);
   const macd = ema12 - ema26;
   
-  // For signal line, we'd need historical MACD values
-  // Simplified: use a basic calculation
-  const signal = macd * 0.9; // simplified signal approximation
+  // Simplified signal line approximation
+  const signal = macd * 0.9;
   
   return { macd, signal };
 }

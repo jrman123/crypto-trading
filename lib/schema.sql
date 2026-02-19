@@ -95,13 +95,13 @@ CREATE TABLE IF NOT EXISTS safety_flags (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Insert default safety flags
+-- Insert default safety flags (all paused by default for safety-first approach)
 INSERT INTO safety_flags (flag_name, is_paused, reason) 
 VALUES 
-    ('TRADING_ENABLED', FALSE, 'System operational'),
-    ('DATA_INGESTION_ENABLED', FALSE, 'Normal operation'),
-    ('SIGNAL_GENERATION_ENABLED', FALSE, 'Normal operation'),
-    ('WEB_INTELLIGENCE_ENABLED', FALSE, 'Normal operation')
+    ('TRADING_ENABLED', TRUE, 'System requires explicit activation'),
+    ('DATA_INGESTION_ENABLED', TRUE, 'System requires explicit activation'),
+    ('SIGNAL_GENERATION_ENABLED', TRUE, 'System requires explicit activation'),
+    ('WEB_INTELLIGENCE_ENABLED', TRUE, 'System requires explicit activation')
 ON CONFLICT (flag_name) DO NOTHING;
 
 -- Performance metrics table

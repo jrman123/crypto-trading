@@ -14,6 +14,10 @@ export interface TradingSignal {
   reasons: string[];
 }
 
+// Signal generation constants
+const HOLD_SIGNAL_THRESHOLD = 1; // Minimum net score to trigger BUY/SELL signal
+const BASE_CONFIDENCE = 0.7; // Base confidence level before volatility adjustment
+
 function analyzeFeatures(features: TechnicalFeatures): TradingSignal {
   const reasons: string[] = [];
   let buyScore = 0;
@@ -74,7 +78,7 @@ function analyzeFeatures(features: TechnicalFeatures): TradingSignal {
   
   const netScore = buyScore - sellScore;
   
-  if (Math.abs(netScore) < 1) {
+  if (Math.abs(netScore) < HOLD_SIGNAL_THRESHOLD) {
     signal_type = 'HOLD';
     strength = 0.3;
   } else if (netScore > 0) {
@@ -86,7 +90,7 @@ function analyzeFeatures(features: TechnicalFeatures): TradingSignal {
   }
   
   // Confidence based on volatility
-  let confidence = 0.7; // base confidence
+  let confidence = BASE_CONFIDENCE;
   if (features.volatility !== undefined) {
     // Lower confidence in high volatility
     confidence = Math.max(0.3, 1 - features.volatility * 10);
