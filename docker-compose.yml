@@ -1,0 +1,151 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: trade_knowledge_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - trade_network
+
+  # Data Ingestor - Fetches OHLCV from Binance
+  ingestor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trade_ingestor
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      INGEST_EVERY: ${INGEST_EVERY}
+    command: python /app/apps/ingestor/main.py
+    volumes:
+      - ./apps:/app/apps
+      - ./configs:/app/configs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - trade_network
+    restart: unless-stopped
+
+  # Feature Builder - Computes technical indicators
+  feature_builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trade_feature_builder
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      FEATURES_EVERY: ${FEATURES_EVERY}
+    command: python /app/apps/feature_builder/main.py
+    volumes:
+      - ./apps:/app/apps
+      - ./configs:/app/configs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - trade_network
+    restart: unless-stopped
+
+  # Signal Engine - Generates trade signals
+  signal_engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trade_signal_engine
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SIGNALS_EVERY: ${SIGNALS_EVERY}
+    command: python /app/apps/signal_engine/main.py
+    volumes:
+      - ./apps:/app/apps
+      - ./configs:/app/configs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - trade_network
+    restart: unless-stopped
+
+  # Execution Bot - Executes trades (PAPER mode)
+  execution_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trade_execution_bot
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      EXECUTE_EVERY: ${EXECUTE_EVERY}
+      EXECUTION_MODE: ${EXECUTION_MODE}
+    command: python /app/apps/execution_bot/main.py
+    volumes:
+      - ./apps:/app/apps
+      - ./configs:/app/configs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - trade_network
+    restart: unless-stopped
+
+  # Web Intelligence Agent - Monitors news
+  web_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trade_web_agent
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      WEB_EVERY: ${WEB_EVERY}
+    command: python /app/apps/web_agent/main.py
+    volumes:
+      - ./apps:/app/apps
+      - ./configs:/app/configs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - trade_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  trade_network:
+    driver: bridge

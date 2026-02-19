@@ -1,0 +1,27 @@
+# Web Intelligence Sources Configuration
+
+# How many hours back to search for news
+lookback_hours: 24
+
+# Keywords that trigger bearish high-impact classification
+high_impact_bearish_keywords:
+  - crash
+  - hack
+  - exploit
+  - scam
+  - fraud
+  - ban
+  - regulation
+  - sec
+  - investigation
+  - lawsuit
+  - bankruptcy
+  - collapse
+  - crisis
+  - attack
+  - breach
+  - stolen
+
+# Confidence threshold for pausing trading (0-100)
+# If bearish news confidence >= this value, trading will pause
+pause_confidence_threshold: 80
