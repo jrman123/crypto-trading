@@ -165,7 +165,7 @@ def process_news_articles(articles):
                     published_dt = datetime.strptime(published[:14], '%Y%m%d%H%M%S')
                 else:
                     published_dt = datetime.now()
-            except:
+            except (ValueError, TypeError):
                 published_dt = datetime.now()
             
             # Analyze sentiment

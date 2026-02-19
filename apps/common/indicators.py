@@ -77,10 +77,10 @@ def get_latest_indicator_values(prices_data: List[Dict]) -> Dict:
     macd_data = calculate_macd(closes)
     
     return {
-        'ema20': ema20[-1] if ema20[-1] is not None else None,
-        'ema50': ema50[-1] if ema50[-1] is not None else None,
-        'rsi14': rsi14[-1] if rsi14[-1] is not None else None,
-        'macd': macd_data['macd'][-1] if macd_data['macd'][-1] is not None else None,
-        'macd_signal': macd_data['signal'][-1] if macd_data['signal'][-1] is not None else None,
-        'macd_histogram': macd_data['histogram'][-1] if macd_data['histogram'][-1] is not None else None,
+        'ema20': ema20[-1],
+        'ema50': ema50[-1],
+        'rsi14': rsi14[-1],
+        'macd': macd_data['macd'][-1],
+        'macd_signal': macd_data['signal'][-1],
+        'macd_histogram': macd_data['histogram'][-1],
     }
