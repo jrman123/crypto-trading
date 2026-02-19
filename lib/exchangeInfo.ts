@@ -29,7 +29,7 @@ export async function getSymbolFilters(baseUrl: string, symbol: string): Promise
   const url = `${baseUrl}/api/v3/exchangeInfo?symbol=${key}`;
   const r = await fetch(url);
   if (!r.ok) throw new Error(`exchangeInfo failed: ${r.status}`);
-  const data = await r.json();
+  const data = await r.json() as any;
   const info = (data.symbols && data.symbols[0]) || {};
   const filters = parseFilters(info);
   cache.set(key, { at: now, filters });

@@ -2,6 +2,42 @@
 
 Production‑safe starter backend for an AI trading flow. Deployed on **Vercel** as Serverless Functions (Node 18, TypeScript). Connects to **Binance.US** or **Binance.com**, receives signals from **Base44**, and notifies **Zapier**.
 
+## 🆕 Trading Knowledge System
+
+This repository now includes a comprehensive **Trading Knowledge System** - a PostgreSQL-backed dataset and web-intelligence pipeline that powers crypto trading bots.
+
+**Features:**
+- 📊 Market data ingestion and storage
+- 🔧 Technical feature engineering (RSI, MACD, EMA, SMA, Volatility)
+- 📡 AI-powered trading signal generation
+- 📝 Paper trading execution and portfolio tracking
+- 🌐 Web intelligence with sentiment analysis
+- 🛡️ Safety pause flags and system health monitoring
+- 🔄 Complete pipeline automation
+
+**[📖 Full Documentation](./TRADING_KNOWLEDGE_SYSTEM.md)** | **[🚀 Quick Demo](./examples/pipeline-demo.js)**
+
+### Quick Example
+
+```bash
+# Run the complete pipeline: ingest → features → signal → trade
+curl -X POST http://localhost:3000/api/pipeline \
+  -H "Content-Type: application/json" \
+  -d '{
+    "marketData": {
+      "symbol": "BTCUSDT",
+      "close": 50500,
+      "volume": 1000
+    },
+    "autoTrade": true,
+    "usdAmount": 100
+  }'
+```
+
+See [TRADING_KNOWLEDGE_SYSTEM.md](./TRADING_KNOWLEDGE_SYSTEM.md) for complete setup and API documentation.
+
+---
+
 ## Quickstart (Remote on Vercel)
 
 1. **Install**: Node.js 18+ and Vercel CLI

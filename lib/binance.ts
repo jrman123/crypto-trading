@@ -48,7 +48,8 @@ export async function signedRequest(method: 'GET'|'POST'|'DELETE', path: string,
 
   if (!r.ok) {
     log.warn('Binance error', method, path, data);
-    throw Object.assign(new Error(data?.msg || `HTTP ${r.status}`), { code: data?.code, status: r.status });
+    const errorData = data as any;
+    throw Object.assign(new Error(errorData?.msg || `HTTP ${r.status}`), { code: errorData?.code, status: r.status });
   }
   return data;
 }
