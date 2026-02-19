@@ -140,9 +140,11 @@ def run_continuous_calculation(symbols, config):
                 features = calculate_features_for_symbol(symbol, min_data_points)
                 if features:
                     store_features(features)
+                    ema20 = features.get('ema20')
+                    rsi14 = features.get('rsi14')
                     logger.info(
-                        f"{symbol}: EMA20={features.get('ema20', 'N/A'):.2f if features.get('ema20') else 'N/A'}, "
-                        f"RSI14={features.get('rsi14', 'N/A'):.2f if features.get('rsi14') else 'N/A'}"
+                        f"{symbol}: EMA20={ema20:.2f if ema20 is not None else 'N/A'}, "
+                        f"RSI14={rsi14:.2f if rsi14 is not None else 'N/A'}"
                     )
                 else:
                     logger.debug(f"No features calculated for {symbol}")
