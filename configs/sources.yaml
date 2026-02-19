@@ -1,0 +1,99 @@
+# Data sources configuration
+# Configure where to fetch market data and news
+
+# Exchange API configuration
+exchange:
+  name: binance
+  # API endpoints will be set via environment variables
+  # BINANCE_API_KEY, BINANCE_API_SECRET, BINANCE_BASE_URL
+  
+  # Rate limits (requests per minute)
+  rate_limit_per_minute: 1200
+  
+  # Retry settings
+  max_retries: 3
+  retry_delay_seconds: 1
+  backoff_multiplier: 2
+
+# News and sentiment sources
+news_sources:
+  # CoinTelegraph RSS
+  - name: cointelegraph
+    type: rss
+    url: https://cointelegraph.com/rss
+    enabled: true
+    check_interval_minutes: 15
+    
+  # CryptoCompare News API
+  - name: cryptocompare
+    type: api
+    url: https://min-api.cryptocompare.com/data/v2/news/
+    enabled: false  # Requires API key
+    check_interval_minutes: 10
+    
+  # CoinDesk RSS
+  - name: coindesk
+    type: rss
+    url: https://www.coindesk.com/arc/outboundfeeds/rss/
+    enabled: true
+    check_interval_minutes: 15
+    
+  # Reddit crypto subreddits
+  - name: reddit_crypto
+    type: reddit
+    subreddits:
+      - cryptocurrency
+      - bitcoin
+      - ethereum
+    enabled: false  # Requires Reddit API credentials
+    check_interval_minutes: 30
+    
+  # Twitter/X crypto feeds
+  - name: twitter
+    type: twitter
+    enabled: false  # Requires Twitter API credentials
+    check_interval_minutes: 10
+    keywords:
+      - bitcoin
+      - ethereum
+      - crypto
+      - btc
+      - eth
+
+# Sentiment analysis
+sentiment:
+  # Use local sentiment analysis or external API
+  provider: local  # local, textblob, vader, or api
+  
+  # Confidence threshold for sentiment (0-1)
+  min_confidence: 0.6
+  
+  # Impact scoring
+  impact_keywords:
+    high:
+      - regulation
+      - sec
+      - lawsuit
+      - hack
+      - exploit
+      - ban
+    medium:
+      - partnership
+      - upgrade
+      - listing
+      - adoption
+    low:
+      - price
+      - analysis
+      - prediction
+
+# Web scraping (for custom sources)
+scraping:
+  # User agent for web requests
+  user_agent: "Mozilla/5.0 (compatible; TradingBot/1.0)"
+  
+  # Request timeout
+  timeout_seconds: 10
+  
+  # Respect robots.txt
+  respect_robots: true
