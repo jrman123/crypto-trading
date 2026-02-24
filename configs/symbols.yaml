@@ -1,0 +1,56 @@
+# Trading symbols configuration
+# Define which symbols to track and trade
+
+symbols:
+  # Major crypto pairs
+  - symbol: BTCUSDT
+    name: Bitcoin
+    enabled: true
+    timeframes:
+      - 1m
+      - 5m
+      - 15m
+      - 1h
+      - 4h
+      - 1d
+    min_trade_size: 0.0001
+    max_trade_size: 1.0
+    
+  - symbol: ETHUSDT
+    name: Ethereum
+    enabled: true
+    timeframes:
+      - 1m
+      - 5m
+      - 15m
+      - 1h
+      - 4h
+      - 1d
+    min_trade_size: 0.001
+    max_trade_size: 10.0
+    
+  - symbol: BNBUSDT
+    name: Binance Coin
+    enabled: false
+    timeframes:
+      - 5m
+      - 1h
+      - 4h
+    min_trade_size: 0.01
+    max_trade_size: 50.0
+    
+  - symbol: SOLUSDT
+    name: Solana
+    enabled: false
+    timeframes:
+      - 5m
+      - 1h
+      - 4h
+    min_trade_size: 0.01
+    max_trade_size: 20.0
+
+# Global settings
+global:
+  default_timeframe: 1h
+  max_symbols: 10
+  update_interval_seconds: 60

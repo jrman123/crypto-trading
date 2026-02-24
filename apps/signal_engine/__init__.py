@@ -1,0 +1,3 @@
+"""
+Signal Engine service initialization
+"""
