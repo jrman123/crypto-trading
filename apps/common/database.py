@@ -70,13 +70,14 @@ class Database:
     
     def health_check(self):
         """Check database connection health"""
+        health_logger = structlog.get_logger()
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("SELECT 1")
                     return True
         except Exception as e:
-            logger.error("Database health check failed", error=str(e))
+            health_logger.error("Database health check failed", error=str(e))
             return False
     
     def execute_query(self, query, params=None, fetch=True):

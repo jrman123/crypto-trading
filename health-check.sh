@@ -65,23 +65,28 @@ if docker-compose exec -T postgres psql -U postgres -d trading_knowledge -c "SEL
     echo "📈 Database Statistics:"
     
     # Prices count
-    price_count=$(docker-compose exec -T postgres psql -U postgres -d trading_knowledge -t -c "SELECT COUNT(*) FROM prices;" 2>/dev/null | tr -d ' ')
+    price_count=$(docker-compose exec -T postgres psql -U postgres -d trading_knowledge -t -c "SELECT COUNT(*) FROM prices;" 2>/dev/null | tr -d ' ' || echo "0")
+    price_count=${price_count:-0}
     echo "  • Prices: ${price_count} records"
     
     # Features count
-    feature_count=$(docker-compose exec -T postgres psql -U postgres -d trading_knowledge -t -c "SELECT COUNT(*) FROM features;" 2>/dev/null | tr -d ' ')
+    feature_count=$(docker-compose exec -T postgres psql -U postgres -d trading_knowledge -t -c "SELECT COUNT(*) FROM features;" 2>/dev/null | tr -d ' ' || echo "0")
+    feature_count=${feature_count:-0}
     echo "  • Features: ${feature_count} records"
     
     # Signals count
-    signal_count=$(docker-compose exec -T postgres psql -U postgres -d trading_knowledge -t -c "SELECT COUNT(*) FROM trade_signals;" 2>/dev/null | tr -d ' ')
+    signal_count=$(docker-compose exec -T postgres psql -U postgres -d trading_knowledge -t -c "SELECT COUNT(*) FROM trade_signals;" 2>/dev/null | tr -d ' ' || echo "0")
+    signal_count=${signal_count:-0}
     echo "  • Signals: ${signal_count} records"
     
     # Orders count
-    order_count=$(docker-compose exec -T postgres psql -U postgres -d trading_knowledge -t -c "SELECT COUNT(*) FROM orders;" 2>/dev/null | tr -d ' ')
+    order_count=$(docker-compose exec -T postgres psql -U postgres -d trading_knowledge -t -c "SELECT COUNT(*) FROM orders;" 2>/dev/null | tr -d ' ' || echo "0")
+    order_count=${order_count:-0}
     echo "  • Orders: ${order_count} records"
     
     # News count
-    news_count=$(docker-compose exec -T postgres psql -U postgres -d trading_knowledge -t -c "SELECT COUNT(*) FROM news_events;" 2>/dev/null | tr -d ' ')
+    news_count=$(docker-compose exec -T postgres psql -U postgres -d trading_knowledge -t -c "SELECT COUNT(*) FROM news_events;" 2>/dev/null | tr -d ' ' || echo "0")
+    news_count=${news_count:-0}
     echo "  • News Events: ${news_count} records"
     
     # Check TRADE_PAUSE flag
@@ -123,7 +128,7 @@ docker-compose logs --tail=100 | grep -i "error" | tail -10 || echo "  No recent
 echo ""
 echo "=========================================="
 
-if [ "$all_healthy" = true ] && [ "$price_count" -gt "0" ]; then
+if [ "$all_healthy" = true ] && [ ${price_count} -gt 0 ]; then
     echo "✅ System Health: GOOD"
     echo ""
     echo "All services are running and data is flowing."
@@ -131,7 +136,7 @@ else
     echo "⚠️  System Health: NEEDS ATTENTION"
     echo ""
     
-    if [ "$price_count" = "0" ]; then
+    if [ ${price_count} -eq 0 ]; then
         echo "⚠️  No price data found. System may be starting up."
         echo "   Wait 2-3 minutes and run this check again."
     fi
