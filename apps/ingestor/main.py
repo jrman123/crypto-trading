@@ -13,7 +13,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from common import (
     db, setup_logging, get_symbols_config, 
-    parse_timeframe_to_seconds, get_current_timestamp
+    parse_timeframe_to_seconds, get_current_timestamp,
+    retry_with_backoff
 )
 
 
@@ -45,8 +46,9 @@ class Ingestor:
         self.logger.info(f"Connected to {exchange_name}")
         return exchange
     
+    @retry_with_backoff(max_retries=3, base_delay=2, exceptions=(ccxt.NetworkError, ccxt.ExchangeError))
     def fetch_candles(self, symbol, timeframe, limit=100):
-        """Fetch OHLCV candles from exchange"""
+        """Fetch OHLCV candles from exchange with retry logic"""
         try:
             ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
             self.logger.info(f"Fetched {len(ohlcv)} candles", symbol=symbol, timeframe=timeframe)
@@ -55,26 +57,33 @@ class Ingestor:
             self.logger.error("Failed to fetch candles", symbol=symbol, timeframe=timeframe, error=str(e))
             db.log_audit('ingestor', 'fetch_candles', 'price', None, 
                         {'symbol': symbol, 'timeframe': timeframe}, 'failure', str(e))
-            return []
+            raise  # Re-raise to trigger retry
     
     def store_candles(self, symbol, timeframe, ohlcv_data):
-        """Store candles in database"""
-        stored_count = 0
+        """Store candles in database using efficient batch insert"""
+        if not ohlcv_data:
+            return 0
+        
+        # Prepare batch data
+        batch_data = []
         for candle in ohlcv_data:
             timestamp_ms, open_price, high, low, close, volume = candle
             timestamp = datetime.fromtimestamp(timestamp_ms / 1000)
-            
-            try:
-                db.insert_price(symbol, timeframe, timestamp, open_price, high, low, close, volume)
-                stored_count += 1
-            except Exception as e:
-                self.logger.error("Failed to store candle", 
-                                symbol=symbol, timestamp=timestamp, error=str(e))
+            batch_data.append((symbol, timeframe, timestamp, open_price, high, low, close, volume))
         
-        self.logger.info(f"Stored {stored_count} candles", symbol=symbol, timeframe=timeframe)
-        db.log_audit('ingestor', 'store_candles', 'price', None,
-                    {'symbol': symbol, 'timeframe': timeframe, 'count': stored_count}, 'success')
-        return stored_count
+        try:
+            # Use batch insert for better performance
+            stored_count = db.insert_prices_batch(batch_data)
+            self.logger.info(f"Stored {stored_count} candles", symbol=symbol, timeframe=timeframe)
+            db.log_audit('ingestor', 'store_candles', 'price', None,
+                        {'symbol': symbol, 'timeframe': timeframe, 'count': stored_count}, 'success')
+            return stored_count
+        except Exception as e:
+            self.logger.error("Failed to store candles batch", 
+                            symbol=symbol, error=str(e))
+            db.log_audit('ingestor', 'store_candles', 'price', None,
+                        {'symbol': symbol, 'timeframe': timeframe}, 'failure', str(e))
+            return 0
     
     def run_once(self):
         """Run one ingestion cycle for all symbols and timeframes"""
@@ -94,6 +103,8 @@ class Ingestor:
                     time.sleep(0.5)
                 except Exception as e:
                     self.logger.error("Ingestion error", symbol=symbol, timeframe=timeframe, error=str(e))
+                    # Continue with next symbol/timeframe even if one fails
+                    continue
         
         self.logger.info("Ingestion cycle complete")
     

@@ -295,7 +295,35 @@ docker-compose logs -f
 docker-compose logs -f ingestor
 docker-compose logs -f signal_engine
 docker-compose logs -f web_agent
+
+# Run health check to verify system status
+./health-check.sh
 ```
+
+## 🎯 Performance Optimizations
+
+The system includes several optimizations for production use:
+
+1. **Connection Pooling**: Database connections are pooled (1-10 connections) for better performance
+2. **Batch Inserts**: Price data is inserted in batches rather than one-by-one
+3. **Retry Logic**: API calls use exponential backoff retry (3 attempts with 2s base delay)
+4. **Health Checks**: Built-in health monitoring for services and database
+5. **Graceful Error Handling**: Services continue running even if individual operations fail
+
+### Monitoring System Health
+
+Use the health check script to verify everything is running optimally:
+```bash
+./health-check.sh
+```
+
+This will show:
+- Service status for all 6 containers
+- Database connectivity
+- Record counts for all tables
+- TRADE_PAUSE flag status
+- Recent activity (last 5 minutes)
+- Recent errors from logs
 
 ## 🔧 Configuration
 

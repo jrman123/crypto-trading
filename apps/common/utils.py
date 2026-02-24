@@ -3,8 +3,10 @@ Common utilities module
 Shared utilities for all services
 """
 import os
+import time
 import structlog
 from datetime import datetime, timezone
+from functools import wraps
 
 
 def setup_logging(service_name):
@@ -25,6 +27,42 @@ def setup_logging(service_name):
     logger = structlog.get_logger()
     logger = logger.bind(service=service_name)
     return logger
+
+
+def retry_with_backoff(max_retries=3, base_delay=1, max_delay=60, exceptions=(Exception,)):
+    """
+    Decorator for retrying functions with exponential backoff
+    
+    Args:
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay in seconds
+        max_delay: Maximum delay in seconds
+        exceptions: Tuple of exceptions to catch and retry
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            retries = 0
+            while retries < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    retries += 1
+                    if retries >= max_retries:
+                        raise
+                    
+                    delay = min(base_delay * (2 ** (retries - 1)), max_delay)
+                    logger = structlog.get_logger()
+                    logger.warning(
+                        f"Attempt {retries}/{max_retries} failed, retrying in {delay}s",
+                        error=str(e),
+                        function=func.__name__
+                    )
+                    time.sleep(delay)
+            
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
 def get_current_timestamp():

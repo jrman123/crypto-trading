@@ -16,7 +16,8 @@ from .utils import (
     format_price,
     calculate_stop_loss,
     calculate_take_profit,
-    is_paper_trading
+    is_paper_trading,
+    retry_with_backoff
 )
 
 __all__ = [
@@ -33,5 +34,6 @@ __all__ = [
     'format_price',
     'calculate_stop_loss',
     'calculate_take_profit',
-    'is_paper_trading'
+    'is_paper_trading',
+    'retry_with_backoff'
 ]

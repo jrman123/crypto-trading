@@ -4,6 +4,7 @@ Provides database connection and query utilities for all services
 """
 import os
 import psycopg2
+from psycopg2 import pool
 from psycopg2.extras import RealDictCursor, execute_values
 from contextlib import contextmanager
 import structlog
@@ -12,7 +13,7 @@ logger = structlog.get_logger()
 
 
 class Database:
-    """Database connection manager"""
+    """Database connection manager with connection pooling for better performance"""
     
     def __init__(self):
         self.connection_params = {
@@ -22,13 +23,36 @@ class Database:
             'user': os.getenv('POSTGRES_USER', 'postgres'),
             'password': os.getenv('POSTGRES_PASSWORD', 'postgres'),
         }
+        # Initialize connection pool for better performance
+        self._pool = None
+        self._initialize_pool()
+    
+    def _initialize_pool(self):
+        """Initialize the connection pool"""
+        try:
+            self._pool = pool.SimpleConnectionPool(
+                minconn=1,
+                maxconn=10,
+                **self.connection_params
+            )
+            logger.info("Database connection pool initialized")
+        except Exception as e:
+            logger.error("Failed to initialize connection pool", error=str(e))
+            # Fallback to direct connections if pool fails
+            self._pool = None
         
     @contextmanager
     def get_connection(self):
-        """Get a database connection context manager"""
+        """Get a database connection context manager with pooling support"""
         conn = None
+        from_pool = False
         try:
-            conn = psycopg2.connect(**self.connection_params)
+            if self._pool:
+                conn = self._pool.getconn()
+                from_pool = True
+            else:
+                conn = psycopg2.connect(**self.connection_params)
+            
             yield conn
             conn.commit()
         except Exception as e:
@@ -38,7 +62,21 @@ class Database:
             raise
         finally:
             if conn:
-                conn.close()
+                if from_pool and self._pool:
+                    self._pool.putconn(conn)
+                else:
+                    conn.close()
+    
+    def health_check(self):
+        """Check database connection health"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                    return True
+        except Exception as e:
+            logger.error("Database health check failed", error=str(e))
+            return False
     
     def execute_query(self, query, params=None, fetch=True):
         """Execute a query and optionally fetch results"""
@@ -71,6 +109,30 @@ class Database:
         """
         result = self.execute_query(query, (symbol, timeframe, timestamp, open_price, high, low, close, volume))
         return result[0]['id'] if result else None
+    
+    def insert_prices_batch(self, prices_data):
+        """Insert multiple price candles efficiently using batch insert"""
+        if not prices_data:
+            return 0
+        
+        query = """
+            INSERT INTO prices (symbol, timeframe, timestamp, open, high, low, close, volume)
+            VALUES %s
+            ON CONFLICT (symbol, timeframe, timestamp) DO UPDATE
+            SET open = EXCLUDED.open,
+                high = EXCLUDED.high,
+                low = EXCLUDED.low,
+                close = EXCLUDED.close,
+                volume = EXCLUDED.volume
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    execute_values(cursor, query, prices_data, page_size=100)
+                    return cursor.rowcount
+        except Exception as e:
+            logger.error("Batch insert failed", error=str(e))
+            return 0
     
     def get_latest_prices(self, symbol, timeframe, limit=100):
         """Get latest price candles for a symbol"""
