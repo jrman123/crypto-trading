@@ -35,7 +35,7 @@ for service in "${services[@]}"; do
             # Check if container has been restarting
             restarts=$(docker inspect --format='{{.RestartCount}}' ${container_name} 2>/dev/null || echo "0")
             
-            if [ "$restarts" -gt "5" ]; then
+            if [ ${restarts} -gt 5 ]; then
                 echo "  ⚠️  ${service}: Running but has restarted ${restarts} times"
                 all_healthy=false
             else

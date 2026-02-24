@@ -42,6 +42,7 @@ def retry_with_backoff(max_retries=3, base_delay=1, max_delay=60, exceptions=(Ex
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            logger = structlog.get_logger()
             retries = 0
             while retries < max_retries:
                 try:
@@ -52,15 +53,12 @@ def retry_with_backoff(max_retries=3, base_delay=1, max_delay=60, exceptions=(Ex
                         raise
                     
                     delay = min(base_delay * (2 ** (retries - 1)), max_delay)
-                    logger = structlog.get_logger()
                     logger.warning(
                         f"Attempt {retries}/{max_retries} failed, retrying in {delay}s",
                         error=str(e),
                         function=func.__name__
                     )
                     time.sleep(delay)
-            
-            return func(*args, **kwargs)
         return wrapper
     return decorator
 

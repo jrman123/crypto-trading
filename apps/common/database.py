@@ -29,15 +29,16 @@ class Database:
     
     def _initialize_pool(self):
         """Initialize the connection pool"""
+        pool_logger = structlog.get_logger()
         try:
             self._pool = pool.SimpleConnectionPool(
                 minconn=1,
                 maxconn=10,
                 **self.connection_params
             )
-            logger.info("Database connection pool initialized")
+            pool_logger.info("Database connection pool initialized")
         except Exception as e:
-            logger.error("Failed to initialize connection pool", error=str(e))
+            pool_logger.error("Failed to initialize connection pool", error=str(e))
             # Fallback to direct connections if pool fails
             self._pool = None
         
