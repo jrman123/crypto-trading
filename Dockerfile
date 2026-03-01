@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
+# Copy requirements first for better caching
 COPY requirements.txt .
 
 # Install Python dependencies
@@ -21,3 +22,11 @@ COPY configs /app/configs
 
 # Default command (will be overridden by docker-compose)
 CMD ["python", "--version"]
+COPY apps/ /app/apps/
+COPY configs/ /app/configs/
+
+# Set Python path
+ENV PYTHONPATH=/app
+
+# Default command (will be overridden by docker-compose)
+CMD ["python", "-u", "/app/apps/ingestor/main.py"]

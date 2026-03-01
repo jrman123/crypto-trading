@@ -1,190 +1,215 @@
--- Trade Knowledge System Database Schema
--- PostgreSQL 15+
+-- Trading Knowledge Database Schema
+-- PostgreSQL database for crypto trading system
 
--- ============================================================
--- TABLE: prices
--- Stores raw OHLCV candlestick data from exchange
--- ============================================================
+-- Extension for UUID generation
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Prices table: stores OHLCV candle data
 CREATE TABLE IF NOT EXISTS prices (
     id SERIAL PRIMARY KEY,
     symbol VARCHAR(20) NOT NULL,
-    timeframe VARCHAR(10) NOT NULL,
-    ts TIMESTAMP NOT NULL,
-    open NUMERIC(20, 8) NOT NULL,
-    high NUMERIC(20, 8) NOT NULL,
-    low NUMERIC(20, 8) NOT NULL,
-    close NUMERIC(20, 8) NOT NULL,
-    volume NUMERIC(20, 8) NOT NULL,
+    timeframe VARCHAR(10) NOT NULL,  -- 1m, 5m, 15m, 1h, 4h, 1d
+    timestamp TIMESTAMP NOT NULL,
+    open DECIMAL(20, 8) NOT NULL,
+    high DECIMAL(20, 8) NOT NULL,
+    low DECIMAL(20, 8) NOT NULL,
+    close DECIMAL(20, 8) NOT NULL,
+    volume DECIMAL(20, 8) NOT NULL,
     created_at TIMESTAMP DEFAULT NOW(),
-    UNIQUE(symbol, timeframe, ts)
+    UNIQUE(symbol, timeframe, timestamp)
 );
 
-CREATE INDEX idx_prices_symbol_ts ON prices(symbol, ts DESC);
-CREATE INDEX idx_prices_timeframe ON prices(timeframe);
+CREATE INDEX idx_prices_symbol_timeframe_timestamp ON prices(symbol, timeframe, timestamp DESC);
 
--- ============================================================
--- TABLE: features
--- Stores computed technical indicators
--- ============================================================
+-- Features table: stores computed technical indicators
 CREATE TABLE IF NOT EXISTS features (
     id SERIAL PRIMARY KEY,
     symbol VARCHAR(20) NOT NULL,
     timeframe VARCHAR(10) NOT NULL,
-    ts TIMESTAMP NOT NULL,
-    ema20 NUMERIC(20, 8),
-    ema50 NUMERIC(20, 8),
-    rsi14 NUMERIC(10, 4),
-    macd NUMERIC(20, 8),
-    macd_signal NUMERIC(20, 8),
-    macd_hist NUMERIC(20, 8),
+    timestamp TIMESTAMP NOT NULL,
+    -- Moving Averages
+    ema_9 DECIMAL(20, 8),
+    ema_21 DECIMAL(20, 8),
+    ema_50 DECIMAL(20, 8),
+    ema_200 DECIMAL(20, 8),
+    -- RSI
+    rsi_14 DECIMAL(10, 2),
+    -- MACD
+    macd DECIMAL(20, 8),
+    macd_signal DECIMAL(20, 8),
+    macd_histogram DECIMAL(20, 8),
+    -- Bollinger Bands
+    bb_upper DECIMAL(20, 8),
+    bb_middle DECIMAL(20, 8),
+    bb_lower DECIMAL(20, 8),
+    -- Volume indicators
+    volume_sma_20 DECIMAL(20, 8),
+    -- Custom features (JSON for flexibility)
+    custom_features JSONB,
     created_at TIMESTAMP DEFAULT NOW(),
-    UNIQUE(symbol, timeframe, ts)
+    UNIQUE(symbol, timeframe, timestamp)
 );
 
-CREATE INDEX idx_features_symbol_ts ON features(symbol, ts DESC);
+CREATE INDEX idx_features_symbol_timeframe_timestamp ON features(symbol, timeframe, timestamp DESC);
 
--- ============================================================
--- TABLE: trade_signals
--- Stores generated trading signals
--- ============================================================
+-- Trade signals table: stores BUY/SELL/HOLD signals
 CREATE TABLE IF NOT EXISTS trade_signals (
     id SERIAL PRIMARY KEY,
     symbol VARCHAR(20) NOT NULL,
-    timeframe VARCHAR(10) NOT NULL,
-    ts TIMESTAMP NOT NULL,
-    side VARCHAR(10) NOT NULL CHECK (side IN ('BUY', 'SELL', 'HOLD')),
-    confidence NUMERIC(5, 2) NOT NULL CHECK (confidence >= 0 AND confidence <= 100),
-    entry NUMERIC(20, 8),
-    stop NUMERIC(20, 8),
-    take_profit NUMERIC(20, 8),
+    signal_type VARCHAR(10) NOT NULL,  -- BUY, SELL, HOLD
+    confidence DECIMAL(5, 2) NOT NULL,  -- 0-100
+    timestamp TIMESTAMP NOT NULL,
+    -- Trade parameters
+    entry_price DECIMAL(20, 8),
+    stop_loss DECIMAL(20, 8),
+    take_profit DECIMAL(20, 8),
+    position_size_usd DECIMAL(20, 2),
+    -- Signal metadata
+    strategy VARCHAR(50),
+    timeframe VARCHAR(10),
     reason TEXT,
+    indicators_snapshot JSONB,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_signals_symbol_ts ON trade_signals(symbol, ts DESC);
-CREATE INDEX idx_signals_side ON trade_signals(side);
-CREATE INDEX idx_signals_created ON trade_signals(created_at DESC);
+CREATE INDEX idx_trade_signals_symbol_timestamp ON trade_signals(symbol, timestamp DESC);
+CREATE INDEX idx_trade_signals_type ON trade_signals(signal_type);
 
--- ============================================================
--- TABLE: orders
--- Stores executed orders (paper or live)
--- ============================================================
+-- Orders table: stores executed orders
 CREATE TABLE IF NOT EXISTS orders (
     id SERIAL PRIMARY KEY,
+    order_id VARCHAR(100) UNIQUE,  -- Exchange order ID
     signal_id INTEGER REFERENCES trade_signals(id),
     symbol VARCHAR(20) NOT NULL,
-    side VARCHAR(10) NOT NULL CHECK (side IN ('BUY', 'SELL')),
-    qty NUMERIC(20, 8) NOT NULL,
-    price NUMERIC(20, 8) NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'NEW' CHECK (status IN ('NEW', 'FILLED', 'REJECTED', 'CANCELLED')),
-    mode VARCHAR(10) NOT NULL DEFAULT 'PAPER' CHECK (mode IN ('PAPER', 'LIVE')),
+    side VARCHAR(10) NOT NULL,  -- BUY, SELL
+    order_type VARCHAR(20) NOT NULL,  -- MARKET, LIMIT, STOP_LOSS
+    status VARCHAR(20) NOT NULL,  -- NEW, FILLED, PARTIALLY_FILLED, CANCELED, REJECTED
+    -- Order details
+    quantity DECIMAL(20, 8),
+    price DECIMAL(20, 8),
+    filled_quantity DECIMAL(20, 8) DEFAULT 0,
+    avg_fill_price DECIMAL(20, 8),
+    -- Paper trading flag
+    is_paper BOOLEAN DEFAULT TRUE,
+    -- Timestamps
+    placed_at TIMESTAMP NOT NULL,
+    filled_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW(),
-    filled_at TIMESTAMP
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE INDEX idx_orders_symbol ON orders(symbol);
 CREATE INDEX idx_orders_status ON orders(status);
-CREATE INDEX idx_orders_created ON orders(created_at DESC);
+CREATE INDEX idx_orders_placed_at ON orders(placed_at DESC);
 
--- ============================================================
--- TABLE: positions
--- Stores current positions (one row per symbol)
--- ============================================================
+-- Positions table: stores current and historical positions
 CREATE TABLE IF NOT EXISTS positions (
-    symbol VARCHAR(20) PRIMARY KEY,
-    qty NUMERIC(20, 8) NOT NULL DEFAULT 0,
-    avg_price NUMERIC(20, 8) NOT NULL DEFAULT 0,
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    side VARCHAR(10) NOT NULL,  -- LONG, SHORT
+    status VARCHAR(20) NOT NULL,  -- OPEN, CLOSED
+    -- Position details
+    entry_price DECIMAL(20, 8) NOT NULL,
+    exit_price DECIMAL(20, 8),
+    quantity DECIMAL(20, 8) NOT NULL,
+    -- Risk management
+    stop_loss DECIMAL(20, 8),
+    take_profit DECIMAL(20, 8),
+    -- P&L tracking
+    realized_pnl DECIMAL(20, 2),
+    unrealized_pnl DECIMAL(20, 2),
+    -- Paper trading flag
+    is_paper BOOLEAN DEFAULT TRUE,
+    -- Entry/Exit orders
+    entry_order_id INTEGER REFERENCES orders(id),
+    exit_order_id INTEGER REFERENCES orders(id),
+    -- Timestamps
+    opened_at TIMESTAMP NOT NULL,
+    closed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- ============================================================
--- TABLE: news_events
--- Stores web intelligence / news events
--- ============================================================
+CREATE INDEX idx_positions_symbol_status ON positions(symbol, status);
+CREATE INDEX idx_positions_opened_at ON positions(opened_at DESC);
+
+-- News events table: stores web/news intelligence
 CREATE TABLE IF NOT EXISTS news_events (
     id SERIAL PRIMARY KEY,
-    symbol VARCHAR(20),
-    published_at TIMESTAMP NOT NULL,
+    source VARCHAR(100) NOT NULL,  -- twitter, reddit, news_api, etc.
     title TEXT NOT NULL,
-    url TEXT UNIQUE NOT NULL,
-    source VARCHAR(100),
-    summary TEXT,
-    impact VARCHAR(20) CHECK (impact IN ('bullish', 'bearish', 'neutral')),
-    confidence NUMERIC(5, 2) CHECK (confidence >= 0 AND confidence <= 100),
+    content TEXT,
+    url TEXT,
+    -- Sentiment analysis
+    sentiment VARCHAR(20),  -- positive, negative, neutral
+    sentiment_score DECIMAL(5, 2),  -- -1.0 to 1.0
+    -- Relevance
+    symbols TEXT[],  -- Array of affected symbols
+    impact_level VARCHAR(20),  -- high, medium, low
+    -- Classification
+    category VARCHAR(50),  -- regulation, technical, market, etc.
+    keywords TEXT[],
+    -- Metadata
+    published_at TIMESTAMP,
+    ingested_at TIMESTAMP DEFAULT NOW(),
     created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_news_symbol ON news_events(symbol);
-CREATE INDEX idx_news_published ON news_events(published_at DESC);
-CREATE INDEX idx_news_impact ON news_events(impact);
+CREATE INDEX idx_news_events_published_at ON news_events(published_at DESC);
+CREATE INDEX idx_news_events_symbols ON news_events USING GIN(symbols);
+CREATE INDEX idx_news_events_sentiment ON news_events(sentiment);
 
--- ============================================================
--- TABLE: system_flags
--- Stores global system configuration flags
--- ============================================================
+-- System flags table: stores system-wide control flags
 CREATE TABLE IF NOT EXISTS system_flags (
-    key VARCHAR(100) PRIMARY KEY,
-    value TEXT NOT NULL,
+    id SERIAL PRIMARY KEY,
+    flag_name VARCHAR(50) NOT NULL UNIQUE,
+    flag_value BOOLEAN NOT NULL DEFAULT FALSE,
+    reason TEXT,
+    set_by VARCHAR(50),  -- service name that set the flag
+    set_at TIMESTAMP DEFAULT NOW(),
+    expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Initialize default system flags
-INSERT INTO system_flags (key, value) VALUES 
-    ('TRADE_PAUSE', 'false'),
-    ('TRADE_PAUSE_REASON', '')
-ON CONFLICT (key) DO NOTHING;
+-- Insert default TRADE_PAUSE flag
+INSERT INTO system_flags (flag_name, flag_value, reason, set_by)
+VALUES ('TRADE_PAUSE', FALSE, 'System initialized', 'init')
+ON CONFLICT (flag_name) DO NOTHING;
 
--- ============================================================
--- VIEWS for convenience
--- ============================================================
+CREATE INDEX idx_system_flags_name ON system_flags(flag_name);
 
--- Latest signals per symbol
-CREATE OR REPLACE VIEW latest_signals AS
-SELECT DISTINCT ON (symbol) *
-FROM trade_signals
-ORDER BY symbol, created_at DESC;
+-- Audit log table: tracks all system actions
+CREATE TABLE IF NOT EXISTS audit_log (
+    id SERIAL PRIMARY KEY,
+    service VARCHAR(50) NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    entity_type VARCHAR(50),  -- order, position, signal, etc.
+    entity_id INTEGER,
+    details JSONB,
+    status VARCHAR(20),  -- success, failure
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
 
--- Current positions with unrealized P&L (requires current price join)
-CREATE OR REPLACE VIEW positions_summary AS
-SELECT 
-    p.symbol,
-    p.qty,
-    p.avg_price,
-    p.updated_at,
-    CASE WHEN p.qty != 0 THEN p.qty * p.avg_price ELSE 0 END as position_value
-FROM positions p
-WHERE p.qty != 0;
+CREATE INDEX idx_audit_log_service ON audit_log(service);
+CREATE INDEX idx_audit_log_created_at ON audit_log(created_at DESC);
 
--- ============================================================
--- UTILITY FUNCTIONS
--- ============================================================
-
--- Function to get latest price for a symbol
-CREATE OR REPLACE FUNCTION get_latest_price(p_symbol VARCHAR, p_timeframe VARCHAR)
-RETURNS NUMERIC AS $$
-DECLARE
-    latest_price NUMERIC;
+-- Function to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
 BEGIN
-    SELECT close INTO latest_price
-    FROM prices
-    WHERE symbol = p_symbol AND timeframe = p_timeframe
-    ORDER BY ts DESC
-    LIMIT 1;
-    
-    RETURN latest_price;
+    NEW.updated_at = NOW();
+    RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ language 'plpgsql';
 
--- Function to check if trading is paused
-CREATE OR REPLACE FUNCTION is_trading_paused()
-RETURNS BOOLEAN AS $$
-DECLARE
-    paused BOOLEAN;
-BEGIN
-    SELECT value::BOOLEAN INTO paused
-    FROM system_flags
-    WHERE key = 'TRADE_PAUSE';
-    
-    RETURN COALESCE(paused, false);
-END;
-$$ LANGUAGE plpgsql;
+-- Triggers for updated_at
+CREATE TRIGGER update_orders_updated_at BEFORE UPDATE ON orders
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_positions_updated_at BEFORE UPDATE ON positions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_system_flags_updated_at BEFORE UPDATE ON system_flags
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
