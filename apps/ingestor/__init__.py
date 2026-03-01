@@ -1,0 +1,3 @@
+"""
+Ingestor service initialization
+"""

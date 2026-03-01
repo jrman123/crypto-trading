@@ -1,21 +1,17 @@
 """
-Web Agent
-Monitors GDELT news for crypto-related events.
-Sets TRADE_PAUSE flag on high-impact bearish news.
+Web Intelligence Agent - Monitors news and sets system flags
 """
 import os
 import sys
 import time
 import logging
-import yaml
-import requests
 from datetime import datetime, timedelta
-from urllib.parse import quote
+import requests
+import yaml
 
 # Add parent directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from common.db import insert_news_event, set_system_flag, execute_query
+sys.path.insert(0, '/app/apps')
+from common.db import db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,290 +20,501 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_sources_config():
-    """Load sources configuration."""
-    config_path = os.getenv('SOURCES_CONFIG', '/app/configs/sources.yaml')
-    try:
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
-    except Exception as e:
-        logger.warning(f"Error loading sources config: {e}, using defaults")
-        return {
-            'news': {
-                'gdelt': {
-                    'enabled': True,
-                    'api_url': 'https://api.gdeltproject.org/api/v2/doc/doc',
-                    'query_interval_sec': 300,
-                    'keywords': ['bitcoin', 'ethereum', 'cryptocurrency'],
-                    'max_results': 10
-                }
-            }
-        }
-
-
-def search_gdelt_news(keywords, max_results=10, api_url=None):
-    """
-    Search GDELT for news articles.
+class WebIntelligenceAgent:
+    """Monitors web news and intelligence for market-moving events"""
     
-    Args:
-        keywords: List of keywords to search
-        max_results: Maximum number of results
-        api_url: GDELT API URL
+    def __init__(self, 
+                 symbols_config_path: str = '/app/configs/symbols.yaml',
+                 sources_config_path: str = '/app/configs/sources.yaml'):
+        self.symbols_config = self._load_config(symbols_config_path)
+        self.sources_config = self._load_config(sources_config_path)
         
-    Returns:
-        List of news articles
-    """
-    if not api_url:
-        api_url = 'https://api.gdeltproject.org/api/v2/doc/doc'
+    def _load_config(self, path: str) -> dict:
+        """Load configuration from YAML"""
+        try:
+            with open(path, 'r') as f:
+                config = yaml.safe_load(f)
+                return config
+        except Exception as e:
+            logger.error(f"Failed to load config from {path}: {e}")
+            return {}
     
-    try:
-        # Build query
-        query = ' OR '.join(keywords)
+    def fetch_gdelt_news(self, query: str, lookback_hours: int = 24) -> list:
+        """
+        Fetch news from GDELT API
         
-        # GDELT API parameters
+        Args:
+            query: Search query
+            lookback_hours: How many hours back to search
+            
+        Returns:
+            List of news articles
+        """
+        # GDELT Doc 2.0 API endpoint
+        base_url = "https://api.gdeltproject.org/api/v2/doc/doc"
+        
+        # Calculate time range
+        end_time = datetime.now()
+        start_time = end_time - timedelta(hours=lookback_hours)
+        
         params = {
             'query': query,
             'mode': 'artlist',
-            'maxrecords': max_results,
+            'maxrecords': 20,
             'format': 'json',
-            'timespan': '1h'  # Last 1 hour
+            'startdatetime': start_time.strftime('%Y%m%d%H%M%S'),
+            'enddatetime': end_time.strftime('%Y%m%d%H%M%S')
         }
         
-        response = requests.get(api_url, params=params, timeout=15)
-        
-        if response.status_code == 200:
-            try:
-                data = response.json()
-                articles = data.get('articles', [])
-                logger.info(f"Found {len(articles)} articles from GDELT")
-                return articles
-            except ValueError:
-                logger.error("Failed to parse GDELT JSON response")
-                return []
-        else:
-            logger.warning(f"GDELT API returned status {response.status_code}")
+        try:
+            response = requests.get(base_url, params=params, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+            return data.get('articles', [])
+        except Exception as e:
+            logger.error(f"GDELT API error: {e}")
             return []
-            
-    except Exception as e:
-        logger.error(f"Error searching GDELT: {e}")
-        return []
-
-
-def analyze_sentiment(title, url=''):
-    """
-    Simple sentiment analysis based on keywords.
     
-    Args:
-        title: Article title
-        url: Article URL
+    def analyze_sentiment(self, title: str, summary: str = '') -> tuple:
+        """
+        Simple keyword-based sentiment analysis
         
-    Returns:
-        Tuple of (sentiment, impact_score)
-    """
-    title_lower = title.lower()
-    
-    # Bearish keywords
-    bearish_keywords = [
-        'crash', 'plunge', 'drop', 'fall', 'decline', 'bear',
-        'collapse', 'crisis', 'hack', 'scam', 'fraud', 'ban',
-        'regulation', 'crackdown', 'warning', 'risk', 'loss'
-    ]
-    
-    # Bullish keywords
-    bullish_keywords = [
-        'surge', 'rally', 'rise', 'gain', 'bull', 'soar',
-        'breakthrough', 'adoption', 'approval', 'partnership',
-        'launch', 'success', 'milestone', 'record'
-    ]
-    
-    bearish_count = sum(1 for kw in bearish_keywords if kw in title_lower)
-    bullish_count = sum(1 for kw in bullish_keywords if kw in title_lower)
-    
-    # Determine sentiment
-    if bearish_count > bullish_count:
-        sentiment = 'BEARISH'
-        impact_score = min(0.3 + (bearish_count * 0.1), 0.9)
-    elif bullish_count > bearish_count:
-        sentiment = 'BULLISH'
-        impact_score = min(0.3 + (bullish_count * 0.1), 0.9)
-    else:
-        sentiment = 'NEUTRAL'
-        impact_score = 0.2
-    
-    return sentiment, impact_score
-
-
-def process_news_articles(articles):
-    """
-    Process and store news articles.
-    
-    Args:
-        articles: List of article dictionaries
+        Returns:
+            (impact: str, confidence: float)
+        """
+        text = (title + ' ' + summary).lower()
         
-    Returns:
-        List of processed articles with sentiment
-    """
-    processed = []
+        # Get keywords from config
+        bearish_keywords = self.sources_config.get('high_impact_bearish_keywords', [
+            'crash', 'hack', 'exploit', 'scam', 'fraud', 'ban', 'regulation',
+            'sec', 'investigation', 'lawsuit', 'bankruptcy', 'collapse', 'crisis'
+        ])
+        
+        bullish_keywords = [
+            'adoption', 'partnership', 'approval', 'etf', 'institutional',
+            'growth', 'surge', 'breakthrough', 'innovation'
+        ]
+        
+        # Count matches
+        bearish_count = sum(1 for kw in bearish_keywords if kw in text)
+        bullish_count = sum(1 for kw in bullish_keywords if kw in text)
+        
+        # Determine impact
+        if bearish_count > bullish_count:
+            impact = 'bearish'
+            confidence = min(bearish_count * 20, 100)  # 20% per keyword, max 100%
+        elif bullish_count > bearish_count:
+            impact = 'bullish'
+            confidence = min(bullish_count * 20, 100)
+        else:
+            impact = 'neutral'
+            confidence = 50
+        
+        return impact, confidence
     
-    for article in articles:
-        try:
-            title = article.get('title', '')
-            url = article.get('url', '')
-            published = article.get('seendate', datetime.now().isoformat())
+    def monitor_news_for_symbol(self, symbol: str):
+        """
+        Monitor news for a specific symbol
+        
+        Args:
+            symbol: Trading symbol (e.g., 'BTCUSDT')
+        """
+        # Extract base currency from symbol (e.g., BTC from BTCUSDT)
+        base = symbol.replace('USDT', '').replace('USD', '')
+        
+        # Search terms
+        search_terms = [
+            f'{base} cryptocurrency',
+            f'bitcoin' if base == 'BTC' else base.lower()
+        ]
+        
+        lookback_hours = self.sources_config.get('lookback_hours', 24)
+        
+        for term in search_terms:
+            articles = self.fetch_gdelt_news(term, lookback_hours)
             
-            if not title:
-                continue
-            
-            # Parse date
+            for article in articles:
+                try:
+                    title = article.get('title', '')
+                    url = article.get('url', '')
+                    published_str = article.get('seendate', '')
+                    
+                    if not title or not url:
+                        continue
+                    
+                    # Parse published date
+                    try:
+                        # GDELT format: YYYYMMDDHHMMSS
+                        published_at = datetime.strptime(published_str, '%Y%m%d%H%M%S')
+                    except:
+                        published_at = datetime.now()
+                    
+                    # Analyze sentiment
+                    impact, confidence = self.analyze_sentiment(title, '')
+                    
+                    # Store in database
+                    db.insert_news_event(
+                        symbol=symbol,
+                        published_at=published_at,
+                        title=title,
+                        url=url,
+                        source='GDELT',
+                        summary=None,
+                        impact=impact,
+                        confidence=confidence
+                    )
+                    
+                    logger.info(
+                        f"News: {symbol} - {impact.upper()} "
+                        f"({confidence:.0f}%) - {title[:60]}..."
+                    )
+                    
+                    # Check if we should pause trading
+                    pause_threshold = self.sources_config.get('pause_confidence_threshold', 80)
+                    if impact == 'bearish' and confidence >= pause_threshold:
+                        logger.warning(
+                            f"HIGH IMPACT BEARISH NEWS DETECTED: {title}"
+                        )
+                        db.set_system_flag('TRADE_PAUSE', 'true')
+                        db.set_system_flag(
+                            'TRADE_PAUSE_REASON',
+                            f'High-impact bearish news: {title[:100]}'
+                        )
+                    
+                except Exception as e:
+                    logger.error(f"Failed to process article: {e}")
+    
+    def run_once(self):
+        """Run one news monitoring cycle"""
+        symbols = self.symbols_config.get('symbols', ['BTCUSDT'])
+        
+        logger.info("=== News monitoring cycle starting ===")
+        
+        for symbol in symbols:
             try:
-                # GDELT date format: YYYYMMDDHHMMSS
-                if len(published) >= 14:
-                    published_dt = datetime.strptime(published[:14], '%Y%m%d%H%M%S')
-                else:
-                    published_dt = datetime.now()
-            except (ValueError, TypeError):
-                published_dt = datetime.now()
-            
-            # Analyze sentiment
-            sentiment, impact_score = analyze_sentiment(title, url)
-            
-            # Extract keywords from title
-            keywords = [word.lower() for word in title.split() if len(word) > 4][:10]
-            
-            # Store in database
-            news_id = insert_news_event(
-                source='GDELT',
-                title=title,
-                url=url,
-                published_at=published_dt,
-                sentiment=sentiment,
-                impact_score=impact_score,
-                keywords=keywords,
-                raw_data=article
-            )
-            
-            processed.append({
-                'id': news_id,
-                'title': title,
-                'sentiment': sentiment,
-                'impact_score': impact_score
-            })
-            
-            logger.info(
-                f"Processed news: {sentiment} (impact={impact_score:.2f}) - {title[:60]}..."
-            )
-            
-        except Exception as e:
-            logger.error(f"Error processing article: {e}")
-    
-    return processed
-
-
-def check_high_impact_bearish_news():
-    """
-    Check for recent high-impact bearish news.
-    
-    Returns:
-        True if high-impact bearish news found
-    """
-    query = """
-        SELECT * FROM news_events
-        WHERE sentiment = 'BEARISH'
-        AND impact_score > 0.6
-        AND published_at > NOW() - INTERVAL '1 hour'
-        ORDER BY impact_score DESC
-        LIMIT 1
-    """
-    
-    results = execute_query(query)
-    return len(results) > 0
-
-
-def update_trade_pause_flag(should_pause, reason=''):
-    """
-    Update TRADE_PAUSE system flag.
-    
-    Args:
-        should_pause: True to pause trading
-        reason: Reason for the flag change
-    """
-    set_system_flag(
-        flag_name='TRADE_PAUSE',
-        flag_value=should_pause,
-        reason=reason,
-        set_by='web_agent'
-    )
-    
-    status = "PAUSED" if should_pause else "RESUMED"
-    logger.warning(f"Trading {status}: {reason}")
-
-
-def run_continuous_monitoring(config):
-    """
-    Continuously monitor news sources.
-    
-    Args:
-        config: Sources configuration
-    """
-    logger.info("Starting continuous news monitoring...")
-    
-    gdelt_config = config['news'].get('gdelt', {})
-    
-    if not gdelt_config.get('enabled', True):
-        logger.warning("GDELT monitoring is disabled")
-        return
-    
-    api_url = gdelt_config.get('api_url')
-    keywords = gdelt_config.get('keywords', ['bitcoin', 'ethereum', 'cryptocurrency'])
-    interval = gdelt_config.get('query_interval_sec', 300)
-    max_results = gdelt_config.get('max_results', 10)
-    
-    logger.info(f"Monitoring keywords: {keywords}")
-    
-    while True:
-        try:
-            # Search for news
-            articles = search_gdelt_news(keywords, max_results, api_url)
-            
-            if articles:
-                # Process articles
-                processed = process_news_articles(articles)
-                
-                # Check for high-impact bearish news
-                if check_high_impact_bearish_news():
-                    logger.warning("High-impact bearish news detected!")
-                    update_trade_pause_flag(
-                        should_pause=True,
-                        reason='High-impact bearish news in crypto market'
-                    )
-                else:
-                    # Resume trading if paused
-                    update_trade_pause_flag(
-                        should_pause=False,
-                        reason='No high-impact bearish news'
-                    )
-            
-            logger.info(f"Sleeping for {interval} seconds...")
-            time.sleep(interval)
-            
-        except KeyboardInterrupt:
-            logger.info("Shutting down web agent...")
-            break
-        except Exception as e:
-            logger.error(f"Error in continuous monitoring: {e}")
-            time.sleep(30)
+                self.monitor_news_for_symbol(symbol)
+            except Exception as e:
+                logger.error(f"Failed to monitor news for {symbol}: {e}")
+        
+        logger.info("News monitoring cycle complete")
 
 
 def main():
-    """Main entry point."""
-    logger.info("Starting Web Agent (News Monitor)...")
+    """Main entry point"""
+    logger.info("=== Web Intelligence Agent Starting ===")
     
-    # Load configuration
-    config = load_sources_config()
+    # Connect to database
+    db.connect()
     
-    # Start continuous monitoring
-    run_continuous_monitoring(config)
+    # Initialize agent
+    agent = WebIntelligenceAgent()
+    
+    # Get interval from environment
+    interval_seconds = int(os.getenv('WEB_EVERY', 7200))  # Default 2 hours
+    
+    try:
+        while True:
+            try:
+                agent.run_once()
+            except Exception as e:
+                logger.error(f"Web intelligence error: {e}")
+            
+            logger.info(f"Sleeping for {interval_seconds} seconds...")
+            time.sleep(interval_seconds)
+            
+    except KeyboardInterrupt:
+        logger.info("Shutting down web intelligence agent...")
+    finally:
+        db.disconnect()
 
 
 if __name__ == '__main__':
     main()
+Web Agent Service
+Searches web/news in near real-time and writes news_events
+Can set TRADE_PAUSE flags based on significant events
+"""
+import sys
+import os
+import time
+import re
+from datetime import datetime, timezone
+import feedparser
+import requests
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+# Add parent directory to path to import common
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from common import (
+    db, setup_logging, get_sources_config,
+    get_current_timestamp
+)
+
+
+class WebAgent:
+    """Ingests news and web intelligence"""
+    
+    def __init__(self):
+        self.logger = setup_logging('web_agent')
+        self.sources_config = get_sources_config()
+        self.sentiment_analyzer = SentimentIntensityAnalyzer()
+        self.seen_urls = set()  # Track seen URLs to avoid duplicates
+        
+    def extract_symbols(self, text):
+        """Extract crypto symbols from text"""
+        if not text:
+            return []
+        
+        text_upper = text.upper()
+        symbols = []
+        
+        # Common crypto keywords and their symbols
+        crypto_keywords = {
+            'BITCOIN': 'BTCUSDT',
+            'BTC': 'BTCUSDT',
+            'ETHEREUM': 'ETHUSDT',
+            'ETH': 'ETHUSDT',
+            'BINANCE COIN': 'BNBUSDT',
+            'BNB': 'BNBUSDT',
+            'SOLANA': 'SOLUSDT',
+            'SOL': 'SOLUSDT',
+        }
+        
+        for keyword, symbol in crypto_keywords.items():
+            if keyword in text_upper:
+                if symbol not in symbols:
+                    symbols.append(symbol)
+        
+        return symbols
+    
+    def analyze_sentiment(self, text):
+        """Analyze sentiment of text"""
+        if not text:
+            return 'neutral', 0.0
+        
+        # Use VADER sentiment analyzer
+        scores = self.sentiment_analyzer.polarity_scores(text)
+        compound_score = scores['compound']
+        
+        # Classify sentiment
+        if compound_score >= 0.05:
+            sentiment = 'positive'
+        elif compound_score <= -0.05:
+            sentiment = 'negative'
+        else:
+            sentiment = 'neutral'
+        
+        return sentiment, compound_score
+    
+    def determine_impact_level(self, text, sentiment_score):
+        """Determine impact level of news"""
+        if not text:
+            return 'low'
+        
+        text_lower = text.lower()
+        
+        # High impact keywords
+        high_impact = self.sources_config.get('sentiment', {}).get('impact_keywords', {}).get('high', [])
+        medium_impact = self.sources_config.get('sentiment', {}).get('impact_keywords', {}).get('medium', [])
+        
+        for keyword in high_impact:
+            if keyword.lower() in text_lower:
+                return 'high'
+        
+        for keyword in medium_impact:
+            if keyword.lower() in text_lower:
+                return 'medium'
+        
+        # Strong sentiment also indicates higher impact
+        if abs(sentiment_score) > 0.7:
+            return 'high'
+        elif abs(sentiment_score) > 0.4:
+            return 'medium'
+        
+        return 'low'
+    
+    def extract_keywords(self, text):
+        """Extract keywords from text"""
+        if not text:
+            return []
+        
+        # Simple keyword extraction (can be improved with NLP)
+        words = re.findall(r'\b[A-Za-z]{4,}\b', text.lower())
+        
+        # Filter common words
+        common_words = {'that', 'this', 'with', 'from', 'have', 'been', 'will', 'their', 'about'}
+        keywords = [w for w in words if w not in common_words]
+        
+        # Return top unique keywords
+        return list(set(keywords))[:10]
+    
+    def fetch_rss_feed(self, source_config):
+        """Fetch and parse RSS feed"""
+        try:
+            url = source_config.get('url')
+            feed = feedparser.parse(url)
+            
+            news_items = []
+            for entry in feed.entries[:10]:  # Process last 10 items
+                # Skip if already seen
+                url = entry.get('link', '')
+                if url in self.seen_urls:
+                    continue
+                
+                self.seen_urls.add(url)
+                
+                title = entry.get('title', '')
+                summary = entry.get('summary', '')
+                content = f"{title}. {summary}"
+                
+                # Extract symbols
+                symbols = self.extract_symbols(content)
+                
+                # Analyze sentiment
+                sentiment, sentiment_score = self.analyze_sentiment(content)
+                
+                # Determine impact
+                impact_level = self.determine_impact_level(content, sentiment_score)
+                
+                # Extract keywords
+                keywords = self.extract_keywords(content)
+                
+                # Parse published date
+                published_at = None
+                if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                    published_at = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+                
+                news_item = {
+                    'source': source_config.get('name'),
+                    'title': title,
+                    'content': summary,
+                    'url': url,
+                    'sentiment': sentiment,
+                    'sentiment_score': sentiment_score,
+                    'symbols': symbols,
+                    'impact_level': impact_level,
+                    'category': 'news',
+                    'keywords': keywords,
+                    'published_at': published_at
+                }
+                
+                news_items.append(news_item)
+            
+            self.logger.info(f"Fetched {len(news_items)} new items from RSS",
+                           source=source_config.get('name'))
+            
+            return news_items
+            
+        except Exception as e:
+            self.logger.error("Failed to fetch RSS feed",
+                            source=source_config.get('name'),
+                            error=str(e))
+            return []
+    
+    def store_news_events(self, news_items):
+        """Store news events in database"""
+        stored_count = 0
+        high_impact_count = 0
+        
+        for item in news_items:
+            try:
+                news_id = db.insert_news_event(item)
+                stored_count += 1
+                
+                if item['impact_level'] == 'high':
+                    high_impact_count += 1
+                    self.logger.warning("High impact news detected",
+                                      title=item['title'],
+                                      sentiment=item['sentiment'],
+                                      symbols=item['symbols'])
+                
+            except Exception as e:
+                self.logger.error("Failed to store news event",
+                                title=item.get('title'),
+                                error=str(e))
+        
+        self.logger.info(f"Stored {stored_count} news events",
+                       high_impact=high_impact_count)
+        
+        db.log_audit('web_agent', 'store_news', 'news_events', None,
+                    {'count': stored_count, 'high_impact': high_impact_count}, 'success')
+        
+        return high_impact_count
+    
+    def check_and_set_pause_flag(self, high_impact_count):
+        """Check if we should pause trading based on news"""
+        try:
+            # Pause if we have multiple high impact news in one cycle
+            if high_impact_count >= 2:
+                db.set_system_flag(
+                    'TRADE_PAUSE',
+                    True,
+                    reason=f"Multiple high-impact news events detected ({high_impact_count})",
+                    set_by='web_agent'
+                )
+                self.logger.warning("TRADE_PAUSE flag set due to high impact news",
+                                  count=high_impact_count)
+            else:
+                # Check if we should unpause
+                current_pause = db.get_system_flag('TRADE_PAUSE')
+                if current_pause and high_impact_count == 0:
+                    # Could implement auto-unpause logic here
+                    pass
+                    
+        except Exception as e:
+            self.logger.error("Failed to update pause flag", error=str(e))
+    
+    def run_once(self):
+        """Run one news ingestion cycle"""
+        self.logger.info("Starting news ingestion cycle")
+        
+        all_news = []
+        
+        # Fetch from all enabled RSS sources
+        news_sources = self.sources_config.get('news_sources', [])
+        for source in news_sources:
+            if not source.get('enabled', False):
+                continue
+            
+            if source.get('type') == 'rss':
+                news_items = self.fetch_rss_feed(source)
+                all_news.extend(news_items)
+            
+            time.sleep(1)  # Be polite to sources
+        
+        # Store news events
+        if all_news:
+            high_impact_count = self.store_news_events(all_news)
+            
+            # Check if we should pause trading
+            self.check_and_set_pause_flag(high_impact_count)
+        else:
+            self.logger.debug("No new news items found")
+        
+        self.logger.info("News ingestion cycle complete")
+    
+    def run_continuous(self, interval_seconds=300):
+        """Run news ingestion continuously"""
+        self.logger.info(f"Starting continuous news ingestion (interval: {interval_seconds}s)")
+        
+        while True:
+            try:
+                self.run_once()
+                time.sleep(interval_seconds)
+            except KeyboardInterrupt:
+                self.logger.info("Stopping web agent")
+                break
+            except Exception as e:
+                self.logger.error("Unexpected error in web agent loop", error=str(e))
+                time.sleep(30)
+
+
+if __name__ == '__main__':
+    agent = WebAgent()
+    
+    # Get update interval from environment (default 5 minutes)
+    interval = int(os.getenv('WEB_AGENT_INTERVAL_SECONDS', '300'))
+    
+    # Run continuously
+    agent.run_continuous(interval_seconds=interval)

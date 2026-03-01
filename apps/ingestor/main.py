@@ -1,19 +1,17 @@
 """
-Binance Price Ingestor
-Fetches kline (candlestick) data from Binance public API and stores in database.
+Data Ingestor - Fetches OHLCV data from Binance and stores in database
 """
 import os
 import sys
 import time
 import logging
-import yaml
-import requests
 from datetime import datetime, timedelta
+import requests
+import yaml
 
 # Add parent directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from common.db import insert_price, get_latest_prices
+sys.path.insert(0, '/app/apps')
+from common.db import db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,188 +20,270 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_symbols():
-    """Load symbols from configuration."""
-    config_path = os.getenv('SYMBOLS_CONFIG', '/app/configs/symbols.yaml')
-    try:
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-            return [s['symbol'] for s in config['symbols'] if s.get('enabled', True)]
-    except Exception as e:
-        logger.error(f"Error loading symbols config: {e}")
-        return ['BTCUSDT', 'ETHUSDT']  # Defaults
-
-
-def load_sources_config():
-    """Load sources configuration."""
-    config_path = os.getenv('SOURCES_CONFIG', '/app/configs/sources.yaml')
-    try:
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
-    except Exception as e:
-        logger.warning(f"Error loading sources config: {e}, using defaults")
-        return {
-            'exchange': {'base_url': 'https://api.binance.com'},
-            'price_ingestion': {
-                'interval': '1m',
-                'lookback_hours': 168,
-                'poll_interval_sec': 60
-            }
-        }
-
-
-def fetch_klines(symbol, interval='1m', limit=100, base_url='https://api.binance.com'):
-    """
-    Fetch kline/candlestick data from Binance.
+class BinanceIngestor:
+    """Fetches candlestick data from Binance public API"""
     
-    Args:
-        symbol: Trading pair symbol (e.g., BTCUSDT)
-        interval: Kline interval (1m, 5m, 15m, 1h, etc.)
-        limit: Number of klines to fetch (max 1000)
-        base_url: Binance API base URL
+    def __init__(self, symbols_config_path: str = '/app/configs/symbols.yaml'):
+        self.base_url = 'https://api.binance.com/api/v3'
+        self.config = self._load_config(symbols_config_path)
         
-    Returns:
-        List of kline data
-    """
-    url = f"{base_url}/api/v3/klines"
-    params = {
-        'symbol': symbol,
-        'interval': interval,
-        'limit': limit
-    }
-    
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        logger.error(f"Error fetching klines for {symbol}: {e}")
-        return []
-
-
-def process_klines(symbol, klines):
-    """
-    Process and store kline data.
-    
-    Args:
-        symbol: Trading pair symbol
-        klines: List of kline data from Binance
-    """
-    stored_count = 0
-    
-    for kline in klines:
+    def _load_config(self, path: str) -> dict:
+        """Load symbols configuration"""
         try:
-            # Binance kline format:
-            # [open_time, open, high, low, close, volume, close_time, ...]
-            timestamp = datetime.fromtimestamp(kline[0] / 1000)
-            open_price = float(kline[1])
-            high = float(kline[2])
-            low = float(kline[3])
-            close = float(kline[4])
-            volume = float(kline[5])
-            
-            insert_price(symbol, timestamp, open_price, high, low, close, volume)
-            stored_count += 1
-            
+            with open(path, 'r') as f:
+                config = yaml.safe_load(f)
+                logger.info(f"Loaded symbols config: {config}")
+                return config
         except Exception as e:
-            logger.error(f"Error processing kline for {symbol}: {e}")
+            logger.error(f"Failed to load symbols config: {e}")
+            return {'timeframe': '1h', 'symbols': ['BTCUSDT']}
     
-    logger.info(f"Stored {stored_count} klines for {symbol}")
-
-
-def run_initial_backfill(symbols, config):
-    """
-    Perform initial backfill of historical data.
-    
-    Args:
-        symbols: List of symbols to backfill
-        config: Sources configuration
-    """
-    logger.info("Starting initial backfill...")
-    
-    base_url = config['exchange']['base_url']
-    interval = config['price_ingestion']['interval']
-    lookback_hours = config['price_ingestion'].get('lookback_hours', 168)
-    
-    # Calculate how many klines we need (approximate)
-    # 1m interval = 60 per hour, 5m = 12 per hour, etc.
-    interval_minutes = {
-        '1m': 1, '5m': 5, '15m': 15, '30m': 30,
-        '1h': 60, '4h': 240, '1d': 1440
-    }
-    minutes = interval_minutes.get(interval, 1)
-    limit = min(1000, int(lookback_hours * 60 / minutes))
-    
-    for symbol in symbols:
-        logger.info(f"Backfilling {symbol}...")
-        klines = fetch_klines(symbol, interval, limit, base_url)
-        if klines:
-            process_klines(symbol, klines)
-        time.sleep(0.5)  # Rate limiting
-
-
-def run_continuous_ingestion(symbols, config):
-    """
-    Continuously fetch and store new price data.
-    
-    Args:
-        symbols: List of symbols to monitor
-        config: Sources configuration
-    """
-    logger.info("Starting continuous ingestion...")
-    
-    base_url = config['exchange']['base_url']
-    interval = config['price_ingestion']['interval']
-    poll_interval = config['price_ingestion'].get('poll_interval_sec', 60)
-    
-    while True:
+    def get_klines(self, symbol: str, interval: str, limit: int = 100) -> list:
+        """
+        Fetch candlestick data from Binance
+        
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            interval: Timeframe (e.g., '1h', '4h', '1d')
+            limit: Number of candles to fetch (max 1000)
+            
+        Returns:
+            List of kline data
+        """
+        endpoint = f"{self.base_url}/klines"
+        params = {
+            'symbol': symbol,
+            'interval': interval,
+            'limit': limit
+        }
+        
         try:
-            for symbol in symbols:
-                # Fetch latest klines (small batch)
-                klines = fetch_klines(symbol, interval, limit=10, base_url=base_url)
-                if klines:
-                    process_klines(symbol, klines)
-                
-                time.sleep(0.5)  # Rate limiting between symbols
-            
-            logger.info(f"Sleeping for {poll_interval} seconds...")
-            time.sleep(poll_interval)
-            
-        except KeyboardInterrupt:
-            logger.info("Shutting down ingestor...")
-            break
+            response = requests.get(endpoint, params=params, timeout=10)
+            response.raise_for_status()
+            return response.json()
         except Exception as e:
-            logger.error(f"Error in continuous ingestion: {e}")
-            time.sleep(10)
+            logger.error(f"Failed to fetch klines for {symbol}: {e}")
+            return []
+    
+    def parse_kline(self, kline: list) -> dict:
+        """
+        Parse Binance kline data
+        
+        Binance kline format:
+        [
+            open_time, open, high, low, close, volume,
+            close_time, quote_volume, trades, taker_buy_base, taker_buy_quote, ignore
+        ]
+        """
+        return {
+            'ts': datetime.fromtimestamp(kline[0] / 1000),
+            'open': float(kline[1]),
+            'high': float(kline[2]),
+            'low': float(kline[3]),
+            'close': float(kline[4]),
+            'volume': float(kline[5])
+        }
+    
+    def ingest_symbol(self, symbol: str, timeframe: str, limit: int = 100):
+        """
+        Ingest candlestick data for a symbol
+        
+        Args:
+            symbol: Trading pair
+            timeframe: Candle timeframe
+            limit: Number of candles to fetch
+        """
+        logger.info(f"Ingesting {symbol} {timeframe} (limit={limit})")
+        
+        klines = self.get_klines(symbol, timeframe, limit)
+        if not klines:
+            logger.warning(f"No data received for {symbol}")
+            return
+        
+        inserted = 0
+        for kline in klines:
+            try:
+                parsed = self.parse_kline(kline)
+                db.upsert_price(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    ts=parsed['ts'],
+                    open_price=parsed['open'],
+                    high=parsed['high'],
+                    low=parsed['low'],
+                    close=parsed['close'],
+                    volume=parsed['volume']
+                )
+                inserted += 1
+            except Exception as e:
+                logger.error(f"Failed to insert kline: {e}")
+        
+        logger.info(f"Ingested {inserted}/{len(klines)} candles for {symbol}")
+    
+    def run_once(self):
+        """Run one ingestion cycle for all configured symbols"""
+        symbols = self.config.get('symbols', ['BTCUSDT'])
+        timeframe = self.config.get('timeframe', '1h')
+        
+        for symbol in symbols:
+            try:
+                self.ingest_symbol(symbol, timeframe)
+            except Exception as e:
+                logger.error(f"Failed to ingest {symbol}: {e}")
+        
+        logger.info("Ingestion cycle complete")
 
 
 def main():
-    """Main entry point."""
-    logger.info("Starting Binance Price Ingestor...")
+    """Main entry point"""
+    logger.info("=== Data Ingestor Starting ===")
     
-    # Load configuration
-    symbols = load_symbols()
-    config = load_sources_config()
+    # Connect to database
+    db.connect()
     
-    logger.info(f"Monitoring symbols: {symbols}")
+    # Initialize ingestor
+    ingestor = BinanceIngestor()
     
-    # Check if we need to do initial backfill
-    # Simple check: if we have no data, do backfill
+    # Get interval from environment
+    interval_seconds = int(os.getenv('INGEST_EVERY', 3600))  # Default 1 hour
+    
     try:
-        latest = get_latest_prices(symbols[0], limit=1)
-        if not latest:
-            run_initial_backfill(symbols, config)
-    except Exception as e:
-        logger.warning(f"Could not check for existing data: {e}")
-        logger.info("Attempting initial backfill...")
-        try:
-            run_initial_backfill(symbols, config)
-        except Exception as e:
-            logger.error(f"Backfill failed: {e}")
-    
-    # Start continuous ingestion
-    run_continuous_ingestion(symbols, config)
+        while True:
+            try:
+                ingestor.run_once()
+            except Exception as e:
+                logger.error(f"Ingestion error: {e}")
+            
+            logger.info(f"Sleeping for {interval_seconds} seconds...")
+            time.sleep(interval_seconds)
+            
+    except KeyboardInterrupt:
+        logger.info("Shutting down ingestor...")
+    finally:
+        db.disconnect()
 
 
 if __name__ == '__main__':
     main()
+Ingestor Service
+Pulls candle data from exchange API and writes to prices table
+"""
+import sys
+import os
+import time
+from datetime import datetime, timedelta
+import ccxt
+
+# Add parent directory to path to import common
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from common import (
+    db, setup_logging, get_symbols_config, 
+    parse_timeframe_to_seconds, get_current_timestamp
+)
+
+
+class Ingestor:
+    """Ingests price data from exchange"""
+    
+    def __init__(self):
+        self.logger = setup_logging('ingestor')
+        self.exchange = self._setup_exchange()
+        self.symbols_config = get_symbols_config()
+        
+    def _setup_exchange(self):
+        """Setup exchange connection"""
+        exchange_name = os.getenv('EXCHANGE', 'binance')
+        api_key = os.getenv('BINANCE_API_KEY', '')
+        api_secret = os.getenv('BINANCE_API_SECRET', '')
+        
+        exchange_class = getattr(ccxt, exchange_name)
+        exchange = exchange_class({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,
+        })
+        
+        # Set testnet if specified
+        if os.getenv('BINANCE_TESTNET', 'false').lower() == 'true':
+            exchange.set_sandbox_mode(True)
+        
+        self.logger.info(f"Connected to {exchange_name}")
+        return exchange
+    
+    def fetch_candles(self, symbol, timeframe, limit=100):
+        """Fetch OHLCV candles from exchange"""
+        try:
+            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            self.logger.info(f"Fetched {len(ohlcv)} candles", symbol=symbol, timeframe=timeframe)
+            return ohlcv
+        except Exception as e:
+            self.logger.error("Failed to fetch candles", symbol=symbol, timeframe=timeframe, error=str(e))
+            db.log_audit('ingestor', 'fetch_candles', 'price', None, 
+                        {'symbol': symbol, 'timeframe': timeframe}, 'failure', str(e))
+            return []
+    
+    def store_candles(self, symbol, timeframe, ohlcv_data):
+        """Store candles in database"""
+        stored_count = 0
+        for candle in ohlcv_data:
+            timestamp_ms, open_price, high, low, close, volume = candle
+            timestamp = datetime.fromtimestamp(timestamp_ms / 1000)
+            
+            try:
+                db.insert_price(symbol, timeframe, timestamp, open_price, high, low, close, volume)
+                stored_count += 1
+            except Exception as e:
+                self.logger.error("Failed to store candle", 
+                                symbol=symbol, timestamp=timestamp, error=str(e))
+        
+        self.logger.info(f"Stored {stored_count} candles", symbol=symbol, timeframe=timeframe)
+        db.log_audit('ingestor', 'store_candles', 'price', None,
+                    {'symbol': symbol, 'timeframe': timeframe, 'count': stored_count}, 'success')
+        return stored_count
+    
+    def run_once(self):
+        """Run one ingestion cycle for all symbols and timeframes"""
+        self.logger.info("Starting ingestion cycle")
+        
+        for symbol_config in self.symbols_config['symbols']:
+            symbol = symbol_config['symbol']
+            timeframes = symbol_config.get('timeframes', ['1h'])
+            
+            for timeframe in timeframes:
+                try:
+                    ohlcv = self.fetch_candles(symbol, timeframe, limit=100)
+                    if ohlcv:
+                        self.store_candles(symbol, timeframe, ohlcv)
+                    
+                    # Small delay to respect rate limits
+                    time.sleep(0.5)
+                except Exception as e:
+                    self.logger.error("Ingestion error", symbol=symbol, timeframe=timeframe, error=str(e))
+        
+        self.logger.info("Ingestion cycle complete")
+    
+    def run_continuous(self, interval_seconds=60):
+        """Run ingestion continuously"""
+        self.logger.info(f"Starting continuous ingestion (interval: {interval_seconds}s)")
+        
+        while True:
+            try:
+                self.run_once()
+                time.sleep(interval_seconds)
+            except KeyboardInterrupt:
+                self.logger.info("Stopping ingestor")
+                break
+            except Exception as e:
+                self.logger.error("Unexpected error in ingestion loop", error=str(e))
+                time.sleep(10)  # Wait before retrying
+
+
+if __name__ == '__main__':
+    ingestor = Ingestor()
+    
+    # Get update interval from config or environment
+    interval = int(os.getenv('INGESTOR_INTERVAL_SECONDS', '60'))
+    
+    # Run continuously
+    ingestor.run_continuous(interval_seconds=interval)
