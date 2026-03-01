@@ -1,0 +1,81 @@
+# Risk Management Configuration
+
+# Maximum position size in USD
+max_position_usd: 1000
+
+# Risk per trade as percentage of account
+risk_per_trade_pct: 2.0
+
+# Stop loss percentage from entry
+stop_loss_pct: 2.0
+
+# Take profit percentage from entry
+take_profit_pct: 4.0
+
+# Minimum confidence required to execute trade (0-100)
+min_confidence: 60.0
+# Risk management configuration
+# Controls position sizing, stops, and limits
+
+risk_limits:
+  # Maximum position size per trade in USD
+  max_position_usd: 100.0
+  
+  # Maximum total portfolio value at risk
+  max_portfolio_usd: 1000.0
+  
+  # Maximum number of open positions
+  max_open_positions: 3
+  
+  # Minimum signal confidence to execute (0-100)
+  min_confidence: 70.0
+  
+  # Stop loss and take profit percentages
+  default_stop_loss_pct: 2.0    # 2% stop loss
+  default_take_profit_pct: 4.0  # 4% take profit (2:1 reward/risk)
+  
+  # Position sizing
+  position_sizing_method: fixed  # fixed, risk_based, kelly
+  risk_per_trade_pct: 1.0       # % of portfolio to risk per trade
+  
+# Trading mode
+trading:
+  # Paper trading (simulation) vs Live trading
+  mode: paper  # paper or live
+  
+  # Execution settings
+  slippage_tolerance_pct: 0.5   # Max allowed slippage
+  order_timeout_seconds: 30
+  
+  # Safety checks
+  require_confirmation: false    # Require manual confirmation for trades
+  max_orders_per_hour: 10
+  max_orders_per_day: 50
+
+# Strategy parameters
+strategy:
+  # Signal generation
+  signal_cooldown_minutes: 15    # Min time between signals for same symbol
+  
+  # Indicator parameters
+  ema_periods: [9, 21, 50, 200]
+  rsi_period: 14
+  rsi_overbought: 70
+  rsi_oversold: 30
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  bb_period: 20
+  bb_std_dev: 2
+  
+# Emergency controls
+emergency:
+  # Auto-pause trading on large drawdown
+  auto_pause_on_drawdown_pct: 10.0
+  
+  # Auto-pause on API errors
+  auto_pause_on_consecutive_errors: 5
+  
+  # Circuit breaker - pause after rapid losses
+  circuit_breaker_loss_pct: 5.0
+  circuit_breaker_period_minutes: 60
