@@ -1,3 +1,4 @@
+# Common utilities for Trade Knowledge System
 """
 Common module initialization
 """

@@ -9,6 +9,9 @@ __pycache__/
 *$py.class
 *.so
 .Python
+env/
+venv/
+ENV/
 build/
 develop-eggs/
 dist/
@@ -23,6 +26,12 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# Environment
+.env
+.env.local
+
+# IDEs
 MANIFEST
 venv/
 env/
@@ -42,6 +51,32 @@ logs/
 *.swp
 *.swo
 *~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+
+# Docker
+.dockerignore
+
+# Node (from previous setup - can be removed if not needed)
+node_modules/
+package-lock.json
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
 
 # OS
 .DS_Store
